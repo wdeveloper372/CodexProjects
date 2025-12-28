@@ -2,58 +2,51 @@ import sys
 import subprocess
 import importlib
 
-packages = [
-    "certifi", # Fix SSL issues on Mac
-    "streamlit",
-    "plotly",
-    "pandas",
-    "pandas_ta",
-    "websocket-client",  # This is the correct library, NOT 'websocket'
-    "requests",
-    "wikipedia"
-]
+print(f"Configuring environment: {sys.executable}")
 
-# Map package names to import names for verification
+def install(packages, description):
+    print(f"\n--- {description} ---")
+    # --no-cache-dir ensures we don't use broken cached downloads
+    cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir"] + packages
+    try:
+        subprocess.check_call(cmd)
+        print("✅ OK")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to install {packages}. Error: {e}")
+
+# 1. Upgrade build tools first (Critical for building pandas_ta)
+install(["--upgrade", "--force-reinstall", "pip", "setuptools", "wheel"], "Upgrading build tools")
+
+# 2. Remove conflicts
+print("\n--- Removing potential conflicts ---")
+subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "websocket", "pandas-ta", "pandas_ta"])
+
+# 3. Install Numpy 1.x (Critical: pandas_ta breaks with Numpy 2.0)
+install(["numpy<2.0.0"], "Installing Numpy 1.x")
+
+# 4. Install Pandas & Scipy (Prerequisites)
+install(["pandas<2.0.0", "scipy", "typing_extensions"], "Installing Pandas 1.x & Scipy")
+
+# 5. Install pandas_ta (Now that prereqs are ready)
+install(["pandas_ta", "--no-deps"], "Installing pandas_ta")
+
+# 6. Install remaining libraries
+install(["streamlit", "plotly", "websocket-client", "requests", "wikipedia", "certifi"], "Installing App Dependencies")
+
+# 7. Verify
+print("\n--- Verifying Imports ---")
 import_names = {
-    "websocket-client": "websocket",
     "pandas_ta": "pandas_ta",
+    "websocket-client": "websocket",
     "streamlit": "streamlit",
     "plotly": "plotly",
     "pandas": "pandas",
-    "requests": "requests",
-    "wikipedia": "wikipedia"
+    "numpy": "numpy"
 }
 
-print(f"Installing libraries to environment: {sys.executable}")
-
-# 0. Upgrade pip
-print("Upgrading pip...")
-subprocess.call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-
-# 1. Uninstall conflicting 'websocket' package if it exists (common issue)
-print("Checking for conflicting packages...")
-subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "websocket"])
-
-# 2. Install required packages
-for package in packages:
-    print(f"Installing {package}...")
+for package, module in import_names.items():
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-    except subprocess.CalledProcessError:
-        print(f"FAILED to install {package}")
-
-# 3. Verify imports
-print("\n--- Verifying Imports ---")
-all_good = True
-for package, module_name in import_names.items():
-    try:
-        importlib.import_module(module_name)
-        print(f"✅ {module_name} (from {package}) imported successfully.")
-    except ImportError as e:
-        print(f"❌ {module_name} FAILED to import. Error: {e}")
-        all_good = False
-
-if all_good:
-    print("\nSUCCESS: All dependencies installed and verified.")
-else:
-    print("\nWARNING: Some modules failed to load. Check the errors above.")
+        importlib.import_module(module)
+        print(f"✅ {module} imported.")
+    except ImportError:
+        print(f"❌ {module} FAILED to import.")

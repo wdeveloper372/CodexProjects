@@ -1,7 +1,10 @@
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
-import pandas_ta as ta
+try:
+    import pandas_ta as ta
+except ImportError:
+    ta = None
 import json
 import threading
 import time
@@ -16,11 +19,21 @@ SYMBOL = "NVDA"
 st.set_page_config(layout="wide", page_title="Personal TC2000 Engine")
 st.title(f"TC2000 Engine: {SYMBOL} (Relative Timeframe)")
 
+if ta is None:
+    st.warning("⚠️ 'pandas_ta' module failed to load. Using basic pandas calculations for indicators.")
+
+if API_KEY == "YOUR_FINNHUB_API_KEY": 
+    st.error("⚠️ Please replace 'YOUR_FINNHUB_API_KEY' with your actual Finnhub API key in the code.")
+    st.stop()
+
 # --- DATA STORAGE ---
 if 'data_queue' not in st.session_state:
     st.session_state.data_queue = queue.Queue()
 
 if 'history' not in st.session_state:
+    st.session_state.history = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close'])
+elif len(st.session_state.history.columns) != 4:
+    # Reset history if columns don't match (fixes "ValueError: Length of values..." from old cache)
     st.session_state.history = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close'])
 
 def get_tc2000_id(dt):
@@ -49,7 +62,11 @@ while True:
     # Process incoming messages from the queue
     while not st.session_state.data_queue.empty():
         message = st.session_state.data_queue.get()
-        data = json.loads(message)
+        try:
+            data = json.loads(message)
+        except json.JSONDecodeError:
+            continue
+            
         if data.get('type') == 'trade' and data.get('data'):
             trade = data['data'][-1]
             price, ts = trade['p'], datetime.fromtimestamp(trade['t']/1000)
@@ -65,8 +82,13 @@ while True:
             
             # Calculate Indicators on the custom timeframes
             if len(df) > 20:
-                df['EMA9'] = ta.ema(df['Close'], length=9)
-                df['SMA20'] = ta.sma(df['Close'], length=20)
+                if ta is not None:
+                    df['EMA9'] = ta.ema(df['Close'], length=9)
+                    df['SMA20'] = ta.sma(df['Close'], length=20)
+                else:
+                    # Fallback if pandas_ta is missing
+                    df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
+                    df['SMA20'] = df['Close'].rolling(window=20).mean()
             
             st.session_state.history = df
 
